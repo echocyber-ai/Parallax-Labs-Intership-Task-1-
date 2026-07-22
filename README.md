@@ -159,9 +159,11 @@ A small overlap is carried from the end of one chunk into the start of the next,
 
 ---
 
-### Task 4: Handling ChromaDB Edge Cases
+### Task 5: Documenting the Chunking Strategy & Handling ChromaDB Edge Cases
 
-To move beyond a working demo toward a more robust system, the search function was hardened against common failure cases before being considered complete:
+**Chunking strategy documentation:** the reasoning behind the chunking approach (recursive splitting, 300-character max size, 30-character overlap) is detailed in Task 1 above, and is also documented directly inside the notebook as a markdown cell placed alongside the chunking code — so the logic is visible in context, not just in this README.
+
+**ChromaDB edge case handling:** to move beyond a working demo toward a more robust system, the search function was hardened against common failure cases before being considered complete:
 
 | Edge case | Handling approach | Result when tested |
 |---|---|---|
@@ -171,36 +173,6 @@ To move beyond a working demo toward a more robust system, the search function w
 | Requesting far more results than exist in the collection | Automatically capped to the actual available count | Correctly returned the full available set instead of erroring, when 999,999 results were requested against a much smaller collection |
 | Unexpected internal errors | Caught and returned as a readable error rather than crashing the program | Not triggered during testing, but in place as a safety net |
 | Normal query (sanity check) | Confirmed the added safety checks didn't break normal behavior | Worked identically to the unprotected version, with no added latency |
-
----
-
-Task 5: Documenting the Chunking Strategy & Handling ChromaDB Edge Cases
-
-Chunking strategy documentation:
-
-The chunking approach uses recursive splitting, trying the most natural break point first and only falling back to a rougher method if a piece of text is still too long:
-
-Split on paragraph breaks first, if present
-If a piece is still too long, split on sentence boundaries
-If a single sentence is still too long, split on word boundaries as a last resort
-
-Parameters used: a maximum chunk size of 300 characters, with a 30-character overlap between consecutive chunks so context isn't abruptly lost at a chunk boundary — a common practice in retrieval systems.
-
-Why these choices: Reddit comments are mostly short, so 300 characters keeps most comments as a single chunk while splitting the minority of long, multi-topic comments into more focused pieces. The overlap preserves a small amount of context across boundaries without meaningfully increasing total chunk count.
-
-This reasoning is also documented directly inside the notebook as a markdown cell alongside the chunking code, so the logic is visible in context, not just in this README.
-
-ChromaDB edge case handling:
-
-The search function was hardened against several failure scenarios before being considered complete:
-
-Edge case	Handling approach	Result when tested
-Empty query	Rejected immediately with a clear error, no embedding attempted	Returned a clean error message instead of crashing
-Whitespace-only query	Treated the same as an empty query	Same graceful error as above
-Excessively long query	Truncated to a safe maximum length (1,000 characters) before embedding	Implemented as a safeguard against degraded performance on unbounded input
-Requesting far more results than exist in the collection	Automatically capped to the actual available count	Correctly returned the full available set instead of erroring, when 999,999 results were requested against a much smaller collection
-Unexpected internal errors	Caught and returned as a readable error rather than crashing the program	Not triggered during testing, but in place as a safety net
-Normal query (sanity check)	Confirmed the added safety checks didn't break normal behavior	Worked identically to the unprotected version, with no added latency
 
 ---
 
@@ -220,4 +192,9 @@ Normal query (sanity check)	Confirmed the added safety checks didn't break norma
 - ChromaDB is currently in-memory only — the collection is wiped when the Colab session ends. Persistent on-disk storage would be needed for a production version.
 - Only the comments dataset was chunked and embedded this week; posts are not yet part of the search index.
 - The excessively-long-query edge case was implemented but not explicitly exercised with a real oversized input during this week's testing.
+
+
+
+
+
 
