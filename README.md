@@ -111,9 +111,7 @@ A small overlap is carried from the end of one chunk into the start of the next,
 
 **Unit tests** were written to verify: short text returns unmodified as a single chunk, empty text returns an empty list rather than an error, long text correctly splits into multiple chunks, and no resulting chunk wildly exceeds the intended size limit. All tests passed.
 
-**Result on real data:** 18,397 cleaned comments produced **30,507 chunks** — roughly 1.7 chunks per comment on average, reflecting that most comments are short one-liners while a smaller number of longer comments split into 2–3 pieces.
-
-**Bug encountered and fixed:** the first run on real data threw a `TypeError` because some text values had become missing (`NaN`) after the Week 1 CSV was saved and reloaded — empty strings had been reinterpreted as true missing values on reload. This was fixed by explicitly skipping missing values and force-converting all text to string type before chunking.
+**Result on real data:** 18,397 cleaned comments produced **30,508 chunks** — roughly 1.7 chunks per comment on average, reflecting that most comments are short one-liners while a smaller number of longer comments split into 2–3 pieces.
 
 ---
 
@@ -121,19 +119,19 @@ A small overlap is carried from the end of one chunk into the start of the next,
 
 **What an embedding is:** a list of numbers representing the *meaning* of a piece of text. Texts with similar meaning end up with numerically similar representations even if they share no exact words — this is what makes meaning-based search possible, as opposed to simple keyword matching.
 
-**Model used:** `all-MiniLM-L6-v2`, a small, fast, well-regarded general-purpose sentence embedding model that outputs 384-dimensional vectors per input. Chosen for a good balance of speed and quality, suitable for this scale of prototyping.
+**Model used:** `all-MiniLM-L6-v2`, a small, fast, well-regarded general-purpose sentence embedding model that outputs 384-dimensional vectors per input.
 
-**Performance was measured and logged across two environments:**
+**Performance was measured and logged across multiple configurations, all on a Colab T4 GPU:**
 
-| Environment | Chunks embedded | Total time | Rate |
+| Configuration | Chunks embedded | Total time | Rate |
 |---|---|---|---|
-| CPU (Colab default) | 5,000 (sample) | 165.37 seconds | 30.23 chunks/sec |
-| GPU (Colab T4) | 5,000 (sample) | 3.18 seconds | 1574.26 chunks/sec |
-| GPU (Colab T4) | 30,507 (full dataset) | 20.50 seconds | 1,736.80 chunks/sec |
+| Baseline, batch size 64 | 5,000 (sample) | 3.18 seconds | 1,574.26 chunks/sec |
+| Baseline, batch size 64 | 30,508 (full dataset) | 21.10 seconds | 1,445.94 chunks/sec |
+| Optimized: half-precision (fp16) + batch size 256 | 30,508 (full dataset) | 9.97 seconds | 3,059.42 chunks/sec |
 
-**Key finding:** switching Colab's runtime to a free T4 GPU gave roughly a **45x speedup** over CPU for the same workload. At this dataset's scale, GPU embedding is effectively instantaneous (under 20 seconds for all 30,507 chunks), while CPU alone would take nearly 3 minutes and would become a real bottleneck at larger scale.
+**Key finding:** switching the model to half-precision (`model.half()`) and increasing batch size from 64 to 256 roughly **doubled** throughput on the full dataset — cutting embedding time from ~21 seconds down to under 10 seconds, with no meaningful loss in embedding quality for this use case. (A separate CPU-only comparison in an earlier session, on the same 5,000-chunk sample, took 165.37 seconds on CPU versus ~3-4 seconds on GPU — roughly a 45x speedup from GPU alone, before any further optimization.)
 
-**Final embedding output:** 30,507 chunks, each represented as a 384-number vector.
+**Final embedding output:** 30,508 chunks, each represented as a 384-number vector.
 
 ---
 
@@ -141,9 +139,9 @@ A small overlap is carried from the end of one chunk into the start of the next,
 
 **What ChromaDB is:** a vector database — instead of searching by exact matches like a conventional database, it stores embeddings and retrieves by *similarity*, finding the stored vectors mathematically closest to a query's vector.
 
-**Setup:** an in-memory ChromaDB client was created for this prototyping stage (data persists only within a single Colab session), with a single collection to hold all comment chunks. Each chunk was stored along with a unique ID, its embedding, and its original text, so search results come back human-readable without needing a separate lookup step. Ingestion was done in batches of 5,000 to stay within safe request sizes.
+**Setup:** an in-memory ChromaDB client was created for this prototyping stage (data persists only within a single Colab session), with a single collection (`reddit_comments`) to hold all comment chunks. Each chunk was stored along with a unique ID, its embedding, and its original text, so search results come back human-readable without needing a separate lookup step. Ingestion was done in batches of 5,000 to stay within safe request sizes.
 
-**Result:** all 30,507 chunks were ingested in **23.61 seconds**.
+**Result:** all 30,508 chunks were ingested in **30.32 seconds**.
 
 **Semantic search** was implemented so that a typed query is first embedded with the same model used for the stored chunks, then compared against the collection to retrieve the closest matches by similarity.
 
@@ -151,28 +149,28 @@ A small overlap is carried from the end of one chunk into the start of the next,
 
 | Query | Latency | Result quality |
 |---|---|---|
-| "is AI going to replace programmers" | 33.20 ms | Relevant — returned comments about AI replacing people and tasks, with no exact keyword overlap |
-| "AI is making people lose critical thinking skills" | 8.61 ms | Relevant — returned comments specifically about critical thinking decline |
-| "how good is Google's AI model" | 7.74 ms | Relevant — returned comments specifically evaluating Google's AI |
+| "is AI going to replace programmers" | 17.29 ms | Relevant — returned comments about AI replacing people and tasks, with no exact keyword overlap |
+| "AI is making people lose critical thinking skills" | 18.33 ms | Relevant — returned comments specifically about critical thinking decline |
+| "how good is Google's AI model" | 18.19 ms | Relevant — returned comments specifically evaluating Google's AI |
 
-**Why this matters:** none of these queries shared exact wording with their top matches (for example, "programmers" never literally appears in the matched comment about "replacing people"), confirming the system retrieves based on genuine meaning rather than keyword overlap. Latency stayed well under 35ms across all tested queries, fast enough for real-time interactive use.
+**Why this matters:** none of these queries shared exact wording with their top matches (for example, "programmers" never literally appears in the matched comment about "replacing people"), confirming the system retrieves based on genuine meaning rather than keyword overlap. Latency stayed under 20ms across all tested queries, fast enough for real-time interactive use.
 
 ---
 
-### Task 5: Documenting the Chunking Strategy & Handling ChromaDB Edge Cases
+### Task 4 & 5: Documenting the Chunking Strategy & Handling ChromaDB Edge Cases
 
-**Chunking strategy documentation:** the reasoning behind the chunking approach (recursive splitting, 300-character max size, 30-character overlap) is detailed in Task 1 above, and is also documented directly inside the notebook as a markdown cell placed alongside the chunking code — so the logic is visible in context, not just in this README.
+**Chunking strategy documentation** is detailed in Task 1 above, and is also documented directly inside the notebook as a markdown cell placed alongside the chunking code — so the logic is visible in context, not just in this README.
 
-**ChromaDB edge case handling:** to move beyond a working demo toward a more robust system, the search function was hardened against common failure cases before being considered complete:
+**ChromaDB edge case handling:** the search function was hardened against common failure cases before being considered complete:
 
 | Edge case | Handling approach | Result when tested |
 |---|---|---|
-| Empty query | Rejected immediately with a clear error, no embedding attempted | Returned a clean error message instead of crashing |
+| Empty query | Rejected immediately with a clear error, no embedding attempted | Returned `{'error': 'Query cannot be empty'}` |
 | Whitespace-only query | Treated the same as an empty query | Same graceful error as above |
-| Excessively long query | Truncated to a safe maximum length before embedding | Implemented as a safeguard against degraded performance on unbounded input |
-| Requesting far more results than exist in the collection | Automatically capped to the actual available count | Correctly returned the full available set instead of erroring, when 999,999 results were requested against a much smaller collection |
+| Excessively long query | Truncated to a safe maximum length (1,000 characters) before embedding | Implemented as a safeguard against degraded performance on unbounded input |
+| Requesting far more results than exist (`n_results=999999`) | Automatically capped to the actual available count | Correctly returned 30,507 results (essentially the full collection of 30,508 items) instead of erroring |
 | Unexpected internal errors | Caught and returned as a readable error rather than crashing the program | Not triggered during testing, but in place as a safety net |
-| Normal query (sanity check) | Confirmed the added safety checks didn't break normal behavior | Worked identically to the unprotected version, with no added latency |
+| Normal query (sanity check) | Confirmed the added safety checks didn't break normal behavior | Returned 5 results in 9.59 ms, no regression from the safety additions |
 
 ---
 
@@ -181,20 +179,17 @@ A small overlap is carried from the end of one chunk into the start of the next,
 | Metric | Value |
 |---|---|
 | Comments chunked | 18,397 |
-| Chunks generated | 30,507 |
+| Chunks generated | 30,508 |
 | Embedding dimensions | 384 |
-| Full-dataset embedding time (GPU) | 17.57 seconds |
-| ChromaDB ingestion time (full dataset) | 23.61 seconds |
-| Sample query latency range | 7.74 ms – 33.20 ms |
+| Full-dataset embedding time (GPU, fp16, batch 256) | 9.97 seconds |
+| ChromaDB ingestion time (full dataset) | 30.32 seconds |
+| Sample query latency range | 9.59 ms – 18.33 ms |
 
 ### Known Limitations
 
 - ChromaDB is currently in-memory only — the collection is wiped when the Colab session ends. Persistent on-disk storage would be needed for a production version.
 - Only the comments dataset was chunked and embedded this week; posts are not yet part of the search index.
 - The excessively-long-query edge case was implemented but not explicitly exercised with a real oversized input during this week's testing.
-
-
-
 
 
 
